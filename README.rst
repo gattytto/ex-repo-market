@@ -4,7 +4,7 @@ Repo Market: Example DAML Application
 ::
 
   Copyright (c) 2019, Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
-  SPDX-License-Identifier: (Apache-2.0 OR BSD-3-Clause)
+  SPDX-License-Identifier: Apache-2.0
 
 This document details an example DAML workflow for a repo market clearing house.
 
