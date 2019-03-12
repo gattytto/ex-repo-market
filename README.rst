@@ -134,4 +134,3 @@ Note that you will also need to add these new parties to the DA project file ``d
 
 Next: `Repo Trading Model <docs/repo-trading-model.rst>`_.
 
-
