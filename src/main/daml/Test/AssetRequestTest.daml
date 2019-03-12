@@ -1,0 +1,55 @@
+-- Copyright (c) 2019, Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
+-- SPDX-License-Identifier: (Apache-2.0 OR BSD-3-Clause)
+
+{-# LANGUAGE PartialTypeSignatures #-}
+
+daml 1.2
+module Test.AssetRequestTest where
+
+import Main.Cash
+import Main.Security
+import Main.SecurityRequest
+import Main.CashRequest
+
+import Test.CashRequestHelper
+
+cashRequestTest : Scenario () -- test
+cashRequestTest =
+  scenario do
+    ccp <- getParty "CCP"
+    tradingPartyId <- getParty "Alice"
+    paymentProcessor <- getParty "Payment Processor"
+    let
+      amount = 510.5
+      currency = "USD"
+      expectedCash = Cash with 
+        ccp
+        owner = tradingPartyId
+        amount
+        currency; paymentProcessor
+      
+
+    cashHelper <- ccp `submit` do create CashRequestHelper with ccp; tradingPartyId; amount; currency; paymentProcessor
+    cashReq <- tradingPartyId `submit` do exercise cashHelper CreateCashRequest
+    lockedCashId <- paymentProcessor `submit` do exercise cashReq AcceptCashRequest
+    lockedCash <- ccp `submit` do fetch lockedCashId
+    assert (lockedCash.ccp == ccp && lockedCash.cash == expectedCash)
+
+securityRequestTest : Scenario () -- test
+securityRequestTest =
+  scenario do
+    tradingPartyId <- getParty "Jenny"
+    ccp <- getParty "CCP"
+    let
+      collateralQuantity = 1981.0
+      cusip = "8675309"
+      expectedSecurity = Security with
+        ccp
+        owner = tradingPartyId
+        cusip
+        collateralQuantity
+      
+    securityRequest <- tradingPartyId `submit` do create SecurityRequest with ccp; cusip; tradingPartyId; collateralQuantity
+    lockedSecurityId <- ccp `submit` do exercise securityRequest AcceptSecurityRequest
+    lockedSecurity <- ccp `submit` do fetch lockedSecurityId
+    assert (lockedSecurity.ccp == ccp && lockedSecurity.security == expectedSecurity)

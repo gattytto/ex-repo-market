@@ -1,0 +1,20 @@
+-- Copyright (c) 2019, Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
+-- SPDX-License-Identifier: (Apache-2.0 OR BSD-3-Clause)
+
+{-# LANGUAGE PartialTypeSignatures #-}
+
+daml 1.2
+module RepoMarket where
+
+import Main.Cash()
+import Main.DvP()
+import Main.Genesis()
+import Main.Security()
+import Main.TradingParticipant()
+import Main.Trade()
+import Main.Netting()
+import Main.NetObligation()
+import Main.SecurityRequest()
+import Main.CashRequest()
+import Main.PaymentProcessor()
+import Main.CCP()

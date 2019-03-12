@@ -1,0 +1,147 @@
+-- Copyright (c) 2019, Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
+-- SPDX-License-Identifier: (Apache-2.0 OR BSD-3-Clause)
+
+{-# LANGUAGE PartialTypeSignatures #-}
+
+daml 1.2
+module Test.SettlementTest where
+
+import Main.Cash
+import Main.Security
+import Main.NetObligation
+import Main.DvP
+
+import Test.NettingTest
+
+dvpTest : Scenario ()  -- test
+dvpTest =
+  scenario do
+    let
+      cusip = "K7837WBS";
+      currency = "USD";
+
+    alice <- getParty "Alice";
+    bob <- getParty "Bob";
+    ccp <- getParty "CCP"
+    paymentProcessor <- getParty "Payment Processor"
+
+    -- Bob repo's (sells) 20 shares of K7837WBS at a price of 400000.0
+    nettingResult <- singleTradeTest
+
+    borrowerDvP <- ccp `submit` do exercise nettingResult.bobNetObligationId CreateSellDvP
+    lenderDvP <- ccp `submit` do exercise nettingResult.aliceNetObligationId CreateBuyDvP
+
+    -- As borrower, Bob transfers the security to the ccp, and the ccp allocates cash to pay him
+    bob `submit` do
+      dvp <- fetch borrowerDvP
+      assert (dvp.payer == bob && dvp.receiver == ccp)
+
+    -- As the lender, Alice provides cash to pay the ccp, but has not yet had the securities allocated yet
+    alice `submit` do
+      dvp <- fetch lenderDvP
+      assert (dvp.payer == ccp && dvp.receiver == alice)
+
+    -- Settle the sell side - this gives the CCP the securities, and Bob the cash
+    settledSecurityId <- ccp `submit` do 
+      settledSellDvPId <- exercise borrowerDvP Settle
+      settledSellDvP <- fetch settledSellDvPId
+      security <- fetch settledSellDvP.securityId
+      cash <- fetch settledSellDvP.cashId
+
+      assert (security == Security {
+        cusip;
+        owner = ccp; collateralQuantity = 20.0; ccp
+      })
+
+      assert (cash == Cash {
+        amount = 300000.0; ccp; owner = bob; currency; paymentProcessor
+      })
+      return settledSellDvP.securityId
+
+    -- Settle the buy side. 
+    ccp `submit` do
+      allocatedDvpId <- exercise lenderDvP AllocateSecurity with securities = [settledSecurityId]
+      settledDvpId <- exercise allocatedDvpId Settle
+      settledDvp <- fetch settledDvpId
+      security <- fetch settledDvp.securityId
+      cash <- fetch settledDvp.cashId
+
+      assert (security == Security {
+        cusip;
+        owner = alice; collateralQuantity = 20.0; ccp
+      })
+
+      assert (cash == Cash {
+        amount = 300000.0; ccp; owner = ccp; currency; paymentProcessor
+      })
+
+      assert True
+
+dvpTestOverAllocation : Scenario ()  -- test
+dvpTestOverAllocation =
+  scenario do
+    let
+      cusip = "K7837WBS"
+      currency = "USD"
+
+    alice <- getParty "Alice"
+    bob <- getParty "Bob"
+    ccp <- getParty "CCP"
+    paymentProcessor <- getParty "Payment Processor"
+
+    -- Bob repo's (sells) 20 shares of K7837WBS at a price of 400000.0
+    nettingResult <- singleTradeTest
+
+    borrowerDvP <- ccp `submit` do exercise nettingResult.bobNetObligationId CreateSellDvP
+    lenderDvP <- ccp `submit` do exercise nettingResult.aliceNetObligationId CreateBuyDvP
+
+    -- As borrower, Bob transfers the security to the ccp, and the ccp allocates cash to pay him
+    bob `submit` do
+      dvp <- fetch borrowerDvP
+      assert (dvp.payer == bob && dvp.receiver == ccp)
+
+    -- As the lender, Alice provides cash to pay the ccp, but has not yet had the securities allocated yet
+    alice `submit` do
+      dvp <- fetch lenderDvP
+      assert (dvp.payer == ccp && dvp.receiver == alice)
+
+    -- Settle the sell side - this gives the CCP the securities, and Bob the cash
+    settledSecurityId <- ccp `submit` do 
+      settledSellDvPId <- exercise borrowerDvP Settle
+      settledSellDvP <- fetch settledSellDvPId
+      security <- fetch settledSellDvP.securityId
+      cash <- fetch settledSellDvP.cashId
+
+      assert (security == Security {
+        cusip;
+        owner = ccp; collateralQuantity = 20.0; ccp
+      })
+
+      assert (cash == Cash {
+        amount = 300000.0; ccp; owner = bob; currency; paymentProcessor
+      })
+      return settledSellDvP.securityId
+
+    -- Settle the buy side. Over allocate to test correct merge and split
+    extraSecurityId <- ccp `submit` do
+      create Security with
+        cusip
+        owner = ccp
+        collateralQuantity = 40.0
+        ccp
+
+    ccp `submit` do
+      allocatedDvpId <- exercise lenderDvP AllocateSecurity with securities = [extraSecurityId, settledSecurityId]
+      settledDvpId <- exercise allocatedDvpId Settle
+      settledDvp <- fetch settledDvpId
+      security <- fetch settledDvp.securityId
+      cash <- fetch settledDvp.cashId
+
+      assert (security == Security {
+        cusip;
+        owner = alice; collateralQuantity = 20.0; ccp
+      })
+
+      assert (cash == Cash {
+        amount = 300000.0; ccp; owner = ccp; currency; paymentProcessor
+      })

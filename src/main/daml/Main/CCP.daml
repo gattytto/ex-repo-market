@@ -1,0 +1,100 @@
+-- Copyright (c) 2019, Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
+-- SPDX-License-Identifier: (Apache-2.0 OR BSD-3-Clause)
+
+{-# LANGUAGE PartialTypeSignatures #-}
+
+daml 1.2
+module Main.CCP where
+
+import Main.TradingParticipant
+import Main.Security
+import Main.Trade
+import Main.Netting
+
+----------------- Helper functions -----------------------------
+combineSecurities : Party -> (ContractId Security) -> (Update Decimal) -> Update Decimal
+combineSecurities ccp security currentQuantity =
+  do
+    contract <- fetch security
+    quantity <- currentQuantity
+    do       exercise security ArchiveSecurity
+    return (contract.collateralQuantity + quantity)
+
+createNettingGroups : Party -> Party -> [ContractId NovatedTrade] -> Update (ContractId NettingGroup)
+createNettingGroups ccp paymentProcessor contractList =
+  create NettingGroup with contractList; ccp; paymentProcessor
+
+createInvitationContracts : Party -> Party -> Party -> Update (ContractId InviteTradingParticipant)
+createInvitationContracts operator ccp tradingPartyId =
+  create InviteTradingParticipant with operator; tradingPartyId; ccp
+----------------------------------------------------------------
+
+
+{--
+    InvitedClearingHouse Template: As the CCP, I want to be able to accept or decline
+    a role in the market.
+ --}
+
+template InviteClearingHouse
+  with
+    operator : Party
+    ccp : Party
+  where
+    signatory operator
+    controller ccp can
+      AcceptClearingHouseInvite : ContractId CCPInvite
+        with paymentProcessor : Party
+        do create CCPInvite with operator; ccp; paymentProcessor
+
+      DeclineClearingHouseInvite
+        : ()
+        do return ()
+
+template CCPInvite
+  with
+    operator : Party
+    ccp : Party
+    paymentProcessor : Party
+  where
+    signatory operator, ccp
+    controller paymentProcessor can
+      ConfirmCCP : ContractId CCP
+        do create CCP with operator; ccp; paymentProcessor
+
+{--
+    CCP Template: As a central clearning house, I want to be able to clear
+  and settle trades.
+ --}
+
+template CCP with
+    operator : Party
+    ccp : Party
+    paymentProcessor : Party
+  where
+    signatory ccp, operator, paymentProcessor
+
+    controller operator can
+      nonconsuming InviteTradingParticipants : [ContractId InviteTradingParticipant]
+        with tradingParties : [Party]
+        do (mapA (createInvitationContracts operator ccp) tradingParties)
+
+    controller ccp can
+      nonconsuming InitiateSettlement : ContractId InitiateSettlementControl
+        with settlementDate : Time
+        do create InitiateSettlementControl with ccp; settlementDate
+
+      nonconsuming FormNettingGroups : [ContractId NettingGroup]
+        with groupsList : [ [ContractId NovatedTrade] ]
+        do (mapA (createNettingGroups ccp paymentProcessor) groupsList)
+
+template InitiateSettlementControl
+  with
+    ccp : Party
+    settlementDate : Time
+  where
+    signatory ccp
+    controller ccp can
+      ArchiveInitiateSettlementControl
+        : ()
+        do   
+          return ()

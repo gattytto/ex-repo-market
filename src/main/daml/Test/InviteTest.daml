@@ -1,0 +1,61 @@
+-- Copyright (c) 2019, Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
+-- SPDX-License-Identifier: (Apache-2.0 OR BSD-3-Clause)
+
+{-# LANGUAGE PartialTypeSignatures #-}
+
+daml 1.2
+module Test.InviteTest where
+
+import DA.List
+
+import Main.Genesis
+import Main.TradingParticipant
+import Main.CCP
+import Main.PaymentProcessor
+
+ccpTest : Scenario (ContractId InviteClearingHouse)  -- test
+ccpTest =
+  scenario do
+    operator <- getParty "Operator"
+    toBe <- getParty "Alice"
+    genesisContract <- operator `submit` do create Genesis with operator
+    operator `submit` do exercise genesisContract InviteCCP with ccp = toBe
+
+paymentProcessorTest : Scenario (ContractId PaymentProcessor)  -- test
+paymentProcessorTest =
+    scenario do
+      operator <- getParty "Operator"
+      toBe <- getParty "Alice"
+      genesisContract <- operator `submit` do create Genesis with operator
+      invite1 <- operator `submit` do exercise genesisContract InvitePaymentProcessor with paymentProcessor = toBe
+      toBe `submit` do exercise invite1 AcceptPaymentProcessorInvitation
+
+data InviteTradeParticipantResult = InviteTradeParticipantResult {
+  ccpRole : ContractId CCP; 
+  tPart1 : ContractId TradingParticipant; 
+  tPart2 : ContractId TradingParticipant
+}
+
+inviteTradeParticipantTest : Scenario InviteTradeParticipantResult  -- test
+inviteTradeParticipantTest =
+  scenario do
+    operator <- getParty "Operator"
+    tp1 <- getParty "Alice"
+    tp2 <- getParty "Bob"
+    ccp <- getParty "CCP"
+    paymentProcessor <- getParty "Payment Processor"
+
+    genesisContract <- operator `submit` do create Genesis with operator
+    ccpInvitation <- operator `submit` do exercise genesisContract InviteCCP with ccp
+    ccpIntermediate <- ccp `submit` do exercise ccpInvitation AcceptClearingHouseInvite with paymentProcessor
+    ccpRole <- paymentProcessor `submit` do exercise ccpIntermediate ConfirmCCP
+    inviteList <- operator `submit` do exercise ccpRole InviteTradingParticipants with tradingParties = [tp1, tp2]
+
+    let
+      invite1 = head inviteList
+      invite2 = last inviteList
+
+    tPart1 <- tp1 `submit` do exercise invite1 AcceptTradingInvite
+    tPart2 <- tp2 `submit` do exercise invite2 AcceptTradingInvite
+
+    return InviteTradeParticipantResult {ccpRole; tPart1; tPart2}

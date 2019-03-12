@@ -1,0 +1,71 @@
+-- Copyright (c) 2019, Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
+-- SPDX-License-Identifier: (Apache-2.0 OR BSD-3-Clause)
+
+{-# LANGUAGE PartialTypeSignatures #-}
+
+daml 1.2
+module Main.TradingParticipant where
+
+import Main.Trade
+
+{--
+    InviteAsTradingParticipant Template: As a trading party, I want to be able to
+    accept or decline a role in the market.
+ --}
+
+template InviteTradingParticipant
+  with
+    ccp : Party
+    operator: Party
+    tradingPartyId: Party
+  where
+    signatory ccp, operator
+    controller tradingPartyId can
+      AcceptTradingInvite
+        : ContractId TradingParticipant
+        do
+          create TradingParticipant with operator; tradingParticipant = tradingPartyId; ccp
+
+      DeclineTradingInvite
+        : ()
+        do return ()
+
+{--
+  TradingParticipant Template: As a trading party, I want to be able to request cash
+  and assets to trade with.
+ --}
+
+template TradingParticipant 
+  with
+    operator : Party
+    tradingParticipant : Party
+    ccp : Party
+  where
+    signatory operator, ccp
+    controller tradingParticipant can
+
+      nonconsuming RequestTrade
+        : ContractId TradeRegistrationRequest
+        with
+          borrower: Party
+          tradeId: Int
+          cusip: Text
+          settlementDate: Time
+          tradeDate: Time
+          collateralQuantity: Decimal
+          price: Decimal
+          repoRate: Decimal
+          term: Int
+          startAmount: Decimal
+          endAmount: Decimal
+          currency: Text
+        do   
+          let tradeInfo = TradeRecord {
+            tradeId; cusip; settlementDate; tradeDate; collateralQuantity;
+            price; repoRate; term; startAmount; endAmount; currency
+          }
+          create TradeRegistrationRequest with
+            tradeRequester = tradingParticipant
+            tradeCounterParty = borrower
+            tradeInfo
+            ccp

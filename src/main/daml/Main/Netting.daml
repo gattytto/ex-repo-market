@@ -1,0 +1,95 @@
+-- Copyright (c) 2019, Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
+-- SPDX-License-Identifier: (Apache-2.0 OR BSD-3-Clause)
+
+{-# LANGUAGE PartialTypeSignatures #-}
+
+daml 1.2
+module Main.Netting where
+
+import DA.List
+import Main.Trade
+import Main.NetObligation
+
+
+----------------- Type definition -------------------------
+data NettedQuantities = NettedQuantities {
+  securityBuy : Decimal; 
+  cashBuy : Decimal; 
+  securitySell : Decimal; 
+  cashSell : Decimal
+}
+-----------------------------------------------------------
+
+netQuantitiesBuy : (Party) -> (ContractId NovatedTrade) -> (Update NettedQuantities) -> Update NettedQuantities
+netQuantitiesBuy ccp cid accU =
+  do
+    contract : NovatedTrade <- fetch cid
+    acc <- accU
+    let
+      securityBuy = acc.securityBuy
+      cashBuy = acc.cashBuy
+      securitySell = acc.securitySell
+      cashSell = acc.cashSell
+      cashToAdd : Decimal = contract.tradeInfo.startAmount
+      securitiesToAdd : Decimal = contract.tradeInfo.collateralQuantity
+    do       exercise cid Archives
+    if contract.isBuy then
+      return NettedQuantities {securityBuy = securityBuy + securitiesToAdd; cashBuy = cashBuy + cashToAdd; securitySell; cashSell}
+    else
+      return NettedQuantities {securityBuy; cashBuy; securitySell = securitySell + securitiesToAdd; cashSell = cashSell + cashToAdd}
+
+
+template NettingGroup
+  with
+    contractList: [ContractId NovatedTrade]
+    ccp : Party
+    paymentProcessor: Party
+  where
+    signatory ccp, paymentProcessor
+    controller ccp can
+      NetTrades
+        : ContractId NetObligationRequest
+        do   
+          -- if the cash is negative in the group contract (nettedCash),
+          -- then the receiver of securities is getting both cash and
+          -- securities. Everything above is from the ccp's perspective;
+          -- so if the nettedSecurity is negative, it means the operator
+          -- is the payer of securities & vice versa
+          usefulInfo <- fetch (head contractList)
+          finalQuantity <- foldr
+            (netQuantitiesBuy ccp)
+            (return NettedQuantities {
+              securityBuy = 0.0;
+              cashBuy = 0.0;
+              securitySell = 0.0;
+              cashSell = 0.0
+            })
+            contractList
+          let
+            nettedSecurity = finalQuantity.securitySell - finalQuantity.securityBuy
+            nettedCash = finalQuantity.cashBuy - finalQuantity.cashSell
+
+          --BUY SIDE (participant's perspective)
+          if nettedSecurity < 0.0 then
+            create NetObligationRequest
+              with
+                ccp; cusip = usefulInfo.tradeInfo.cusip
+                settlementDate = usefulInfo.tradeInfo.settlementDate
+                currency = usefulInfo.tradeInfo.currency
+                participantId = usefulInfo.participantId
+                paymentAmount = nettedCash
+                quantity = abs(nettedSecurity)
+                paymentProcessor
+                isBuy = True
+          -- SELL SIDE
+          else
+            create NetObligationRequest
+              with
+                ccp; cusip = usefulInfo.tradeInfo.cusip
+                settlementDate = usefulInfo.tradeInfo.settlementDate
+                currency = usefulInfo.tradeInfo.currency
+                participantId = usefulInfo.participantId
+                paymentAmount = -1.0*nettedCash
+                quantity = abs(nettedSecurity)
+                paymentProcessor
+                isBuy = False

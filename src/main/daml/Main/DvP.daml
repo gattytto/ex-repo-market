@@ -1,0 +1,160 @@
+-- Copyright (c) 2019, Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
+-- SPDX-License-Identifier: (Apache-2.0 OR BSD-3-Clause)
+
+{-# LANGUAGE PartialTypeSignatures #-}
+
+daml 1.2
+module Main.DvP where
+
+import DA.List
+
+import Main.Cash
+import Main.Security
+
+{--
+    DvP Template: As a CCP, upon receiving the asset requests from trading participants,
+    I want to accept and create asset contracts with the requesting party as the
+    owner and lock it for DvP
+ --}
+
+template SettledDvP
+  with
+    ccp: Party
+    paymentProcessor : Party
+    payer: Party
+    receiver: Party
+    settlementDate: Time
+    cusip: Text
+    currency: Text
+    paymentAmount: Decimal
+    quantity: Decimal
+    cashId: ContractId Cash
+    securityId: ContractId Security  
+  where
+    signatory ccp, payer, receiver, paymentProcessor
+    controller ccp can
+      ArchiveSettledDvP
+        : ()
+        do return ()
+
+template AllocatedDvP
+  with
+    ccp: Party
+    paymentProcessor : Party
+    payer: Party
+    receiver: Party
+    settlementDate: Time
+    cusip: Text
+    currency: Text
+    paymentAmount: Decimal
+    quantity: Decimal
+    lockedCashId: ContractId LockedCash
+    lockedSecurityId: ContractId LockedSecurity
+  where
+    signatory ccp, payer, receiver, paymentProcessor
+    controller ccp can
+      Settle 
+        : ContractId SettledDvP
+        do   
+          cashId <- exercise lockedCashId UnlockCash
+          securityId <- exercise lockedSecurityId UnlockSecurity
+          cash <- fetch cashId
+          security <- fetch securityId          
+          assert (cash.amount == paymentAmount)
+          assert (security.collateralQuantity == quantity)
+
+          -- Swap the assets
+          -- payer is giving assets and receiving cash (borrower)
+          -- receiver is giving cash and receiving assets (lender)
+          cashPoAID <- create CashPoA with
+            owner = receiver
+            paymentProcessor
+          cashTransfer <- exercise cashPoAID DelegatedTransferCash with
+              cashId
+              newOwner = payer
+          transferredCash <- exercise cashTransfer AcceptCashTransfer
+          securityTransfer <- exercise securityId TransferSecurity with newOwner = receiver
+          transferredSecurity <- exercise securityTransfer AcceptSecurityTransfer
+          create SettledDvP with 
+                ccp; paymentProcessor; payer; receiver
+                settlementDate
+                cusip; currency; paymentAmount; quantity
+                cashId = transferredCash; securityId = transferredSecurity
+          
+template CashAllocatedDvP
+  with
+    ccp: Party
+    paymentProcessor : Party
+    payer: Party
+    receiver: Party
+    settlementDate: Time
+    cusip: Text
+    currency: Text
+    paymentAmount: Decimal
+    quantity: Decimal
+    lockedCashId: ContractId LockedCash
+  where
+    signatory ccp, payer, receiver, paymentProcessor
+    controller ccp can
+      AllocateSecurity : ContractId AllocatedDvP
+        with securities: [ContractId Security]
+        do   
+          let mergeSecurity (acc: Update (ContractId Security)) (securityId: ContractId Security) = do
+                mergedId <- acc
+                do       exercise securityId MergeSecurity with thatCid = mergedId
+          
+          -- Merge the list of securities into one
+
+          mergedSecurityId <- foldl mergeSecurity (return (head securities)) (tail securities)
+          mergedSecurity <- fetch mergedSecurityId
+
+          -- Make sure we have enough, and split into one to allocate and any remaining
+          assertMsg "Not enough securities" (mergedSecurity.collateralQuantity >= quantity) 
+          mergedSecurityId <- do
+            if (mergedSecurity.collateralQuantity > quantity)
+            then do
+              splitResult <- do       exercise mergedSecurityId SplitSecurity with newQuantity = quantity
+              return splitResult.newAmountSecurity
+            else do
+              return mergedSecurityId
+
+          -- Lock the security to be allocated, and create an AllocatedDvP with the lock result
+          lockedSecurityId <- do       exercise mergedSecurityId LockSecurity
+          create AllocatedDvP 
+            with 
+              ccp; paymentProcessor; payer; receiver
+              settlementDate
+              cusip; currency; paymentAmount; quantity
+              lockedCashId; lockedSecurityId
+
+template DvP
+  with
+    ccp: Party
+    paymentProcessor : Party
+    payer: Party
+    receiver: Party
+    settlementDate: Time
+    cusip: Text
+    currency: Text
+    paymentAmount: Decimal
+    quantity: Decimal
+  where
+    signatory ccp, payer, receiver, paymentProcessor
+    controller ccp can
+      AllocateCash : ContractId CashAllocatedDvP
+        with cash: [ContractId Cash]
+        do   
+        let mergeCash (acc: Update (ContractId Cash)) (cashId: ContractId Cash) = do
+              mergedId <- acc
+              do       exercise cashId MergeCash with thatCid = mergedId
+
+        mergedCashId <- foldl mergeCash (return (head cash)) (tail cash)
+        mergedCash <- fetch mergedCashId
+        assertMsg  "Not enough cash" (mergedCash.amount >= paymentAmount)
+        lockedCashId <- do       exercise mergedCashId LockCash
+        create CashAllocatedDvP
+          with 
+            ccp; paymentProcessor; payer; receiver
+            settlementDate
+            cusip; currency; paymentAmount; quantity
+            lockedCashId         

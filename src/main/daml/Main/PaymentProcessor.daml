@@ -1,0 +1,27 @@
+-- Copyright (c) 2019, Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
+-- SPDX-License-Identifier: (Apache-2.0 OR BSD-3-Clause)
+
+{-# LANGUAGE PartialTypeSignatures #-}
+
+daml 1.2
+module Main.PaymentProcessor where
+
+template InviteAsPaymentProcessor
+  with
+    paymentProcessorParty : Party
+    operator: Party
+  where
+    signatory operator
+    controller paymentProcessorParty can
+      AcceptPaymentProcessorInvitation
+        : ContractId PaymentProcessor
+        do create PaymentProcessor with paymentProcessorParty; operator
+
+
+template PaymentProcessor
+  with
+    paymentProcessorParty : Party
+    operator: Party
+  where
+    signatory operator
+    signatory paymentProcessorParty

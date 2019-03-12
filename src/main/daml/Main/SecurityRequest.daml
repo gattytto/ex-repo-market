@@ -1,0 +1,34 @@
+-- Copyright (c) 2019, Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
+-- SPDX-License-Identifier: (Apache-2.0 OR BSD-3-Clause)
+
+{-# LANGUAGE PartialTypeSignatures #-}
+
+daml 1.2
+module Main.SecurityRequest where
+
+import Main.Security
+
+{--
+    Security Request Template: As a market participant, I want to be able to request assets
+  in order to trade.
+ --}
+
+template SecurityRequest
+  with
+    ccp : Party
+    cusip : Text
+    tradingPartyId : Party
+    collateralQuantity : Decimal
+  where
+    signatory tradingPartyId
+    controller ccp can
+      AcceptSecurityRequest
+        : ContractId LockedSecurity
+        do   
+          sec <- create Security with cusip; owner = tradingPartyId; collateralQuantity; ccp
+          lockedSec <- do       exercise sec LockSecurity
+          return lockedSec
+
+      DeclineSecurityRequest
+        : ()
+        do return ()

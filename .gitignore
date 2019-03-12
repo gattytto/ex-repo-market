@@ -1,0 +1,17 @@
+# Copyright (c) 2019, Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
+# SPDX-License-Identifier: (Apache-2.0 OR BSD-3-Clause)
+
+lib/
+logs/
+target/
+**/navigator.log
+**/sandbox.log
+**/*.t.err
+sqlite/
+dependency-reduced-pom.xml
+.navigator.conf
+navigator.history
+*.iml
+.idea/
+**/.DS_Store
+.vscode/settings.json

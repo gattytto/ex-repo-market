@@ -1,0 +1,15 @@
+-- Copyright (c) 2019, Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
+-- SPDX-License-Identifier: (Apache-2.0 OR BSD-3-Clause)
+
+{-# LANGUAGE PartialTypeSignatures #-}
+
+daml 1.2
+module RepoMarketTests where
+
+import Test.AssetRequestTest()
+import Test.AssetTest()
+import Test.CashRequestHelper()
+import Test.InviteTest()
+import Test.NettingTest()
+import Test.SettlementTest()
+import Test.TradeTest()

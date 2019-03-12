@@ -1,0 +1,214 @@
+-- Copyright (c) 2019, Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
+-- SPDX-License-Identifier: (Apache-2.0 OR BSD-3-Clause)
+
+{-# LANGUAGE PartialTypeSignatures #-}
+
+daml 1.2
+module Test.NettingTest where
+
+import DA.Time
+import DA.Date
+import DA.List
+
+import Main.Trade
+import Main.NetObligation
+import Main.Netting
+import Main.TradingParticipant
+import Main.CCP
+
+import Test.InviteTest
+
+data NettingTestResult = NettingTestResult {
+  ccpRole : ContractId CCP;
+  aliceNetObligationId : ContractId NetObligation; 
+  bobNetObligationId : ContractId NetObligation
+}
+
+singleTradeTest : Scenario NettingTestResult  -- test
+singleTradeTest =
+  scenario do
+
+    inviteResult <- inviteTradeParticipantTest
+    alice <- getParty "Alice"
+    bob <- getParty "Bob"
+    ccp <- getParty "CCP"
+    paymentProcessor <- getParty "Payment Processor"
+
+    let
+      tradeId = 1111
+      cusip = "K7837WBS"
+      settlementDate = datetime 1970 Jan 2 0 0 0
+      tradeDate = datetime 1970 Feb 2 0 0 0
+      collateralQuantity = 20.0
+      price = 90.93
+      repoRate = 4.16
+      term = 30
+      startAmount = 300000.0
+      endAmount = 400000.0
+      currency = "USD"
+
+    -- Bob repo's 20 shares of K7837WBS at a price of 400000.0
+
+      participant1 = inviteResult.tPart1
+      ccpRole = inviteResult.ccpRole
+
+    tradeRequest <- alice `submit` do
+      exercise participant1 RequestTrade
+        with
+          borrower = bob; tradeId; cusip
+          settlementDate; tradeDate
+          collateralQuantity; price; repoRate; term = term
+          startAmount; endAmount; currency
+
+    trade <- bob `submit` do exercise tradeRequest RegisterTrade
+    postNovatedTrade <- ccp `submit` do exercise trade Novate
+    nettingGroupList <- ccp `submit` do
+      exercise ccpRole FormNettingGroups
+        with groupsList = [[postNovatedTrade.lenderNovation], [postNovatedTrade.borrowerNovation]]
+
+    netObReq <- ccp `submit` do exercise (head nettingGroupList) NetTrades
+
+    let
+      expectedAliceObligation = NetObligation
+        with
+          ccp 
+          currency  = "USD"
+          cusip  = "K7837WBS"
+          payer  = ccp
+          paymentAmount  =  300000.0
+          paymentProcessor
+          quantity  = 20.0
+          receiver   = alice
+          settlementDate  = datetime 1970 Jan 2 0 0 0
+
+      expectedBobObligation = NetObligation
+        with
+          ccp
+          currency  = "USD"
+          cusip  = "K7837WBS"
+          payer  = bob
+          paymentAmount  =  300000.0
+          paymentProcessor
+          quantity  = 20.0
+          receiver   = ccp
+          settlementDate  = datetime 1970 Jan 2 0 0 0
+
+    aliceNetObligationId <- alice `submit` do
+      netObligationId <- exercise netObReq AcceptNetObligation
+      netObligation <- fetch netObligationId
+      assert (netObligation == expectedAliceObligation)
+      return netObligationId
+
+    netObReq <- ccp `submit` do exercise (last nettingGroupList) NetTrades
+
+    bobNetObligationId <- bob `submit` do
+      netObligationId <- exercise netObReq AcceptNetObligation
+      netObligation <- fetch netObligationId
+      assert (netObligation == expectedBobObligation)
+      return netObligationId
+
+    return NettingTestResult {ccpRole = inviteResult.ccpRole; aliceNetObligationId; bobNetObligationId}
+
+zeroNetTest : Scenario NettingTestResult  -- test
+zeroNetTest =
+  scenario do
+
+    inviteResult <- inviteTradeParticipantTest
+    alice <- getParty "Alice"
+    bob <- getParty "Bob"
+    ccp <- getParty "CCP"
+    paymentProcessor <- getParty "Payment Processor"
+
+    let
+      tradeId = 1111
+      cusip = "K7837WBS"
+      settlementDate = datetime 1970 Jan 2 0 0 0
+      tradeDate = datetime 1970 Feb 2 0 0 0
+      collateralQuantity = 20.0
+      price = 90.93
+      repoRate = 4.16
+      term = 30
+      startAmount = 300000.0
+      endAmount = 400000.0
+      currency = "USD"
+
+    -- Bob repo's 20 shares of K7837WBS with Alice at a price of 400000.0
+    -- Alice repo's 20 shares of K7837WBS with Bob at a price of 400000.0
+    -- Net result == zero
+
+      participant1 = inviteResult.tPart1
+      participant2 = inviteResult.tPart2
+      ccpRole = inviteResult.ccpRole
+
+    tradeRequest <- alice `submit` do
+      exercise participant1 RequestTrade
+        with
+          borrower = bob; tradeId; cusip
+          settlementDate; tradeDate
+          collateralQuantity; price; repoRate; term
+          startAmount; endAmount; currency
+
+    trade <- bob `submit` do exercise tradeRequest RegisterTrade
+    postNovatedTrade1 <- ccp `submit` do exercise trade Novate
+
+    tradeRequest <- bob `submit` do
+      exercise participant2 RequestTrade
+        with
+          borrower = alice; tradeId; cusip
+          settlementDate; tradeDate
+          collateralQuantity; price; repoRate; term
+          startAmount; endAmount; currency
+
+    trade <- alice `submit` do exercise tradeRequest RegisterTrade
+    postNovatedTrade2 <- ccp `submit` do exercise trade Novate
+
+    nettingGroupList <- ccp `submit` do
+      let 
+        group1 = [postNovatedTrade1.lenderNovation, postNovatedTrade2.borrowerNovation]
+        group2 = [postNovatedTrade2.lenderNovation, postNovatedTrade1.borrowerNovation]
+
+      exercise ccpRole FormNettingGroups
+        with groupsList = [ group1, group2 ]
+
+    netObReq <- ccp `submit` do exercise (head nettingGroupList) NetTrades
+
+    let
+      expectedAliceObligation = NetObligation
+        with
+          ccp
+          currency  = "USD"
+          cusip  = "K7837WBS"
+          payer  = alice
+          paymentAmount  =  0.0
+          paymentProcessor
+          quantity  = 0.0
+          receiver = ccp
+          settlementDate  = datetime 1970 Jan 2 0 0 0
+
+      expectedBobObligation = NetObligation
+        with
+          ccp
+          currency  = "USD"
+          cusip  = "K7837WBS"
+          payer  = bob
+          paymentAmount  =  0.0
+          paymentProcessor
+          quantity  = 0.0
+          receiver = ccp
+          settlementDate  = datetime 1970 Jan 2 0 0 0
+
+    aliceNetObligationId <- alice `submit` do
+      netObligationId <- exercise netObReq AcceptNetObligation
+      netObligation <- fetch netObligationId
+      assert (netObligation == expectedAliceObligation)
+      return netObligationId
+
+    netObReq <- ccp `submit` do exercise (last nettingGroupList) NetTrades
+
+    bobNetObligationId <- bob `submit` do
+      netObligationId <- exercise netObReq AcceptNetObligation
+      netObligation <- fetch netObligationId
+      assert (netObligation == expectedBobObligation)
+      return netObligationId
+
+    return NettingTestResult {ccpRole = inviteResult.ccpRole; aliceNetObligationId; bobNetObligationId}

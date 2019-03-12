@@ -1,0 +1,33 @@
+-- Copyright (c) 2019, Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
+-- SPDX-License-Identifier: (Apache-2.0 OR BSD-3-Clause)
+
+{-# LANGUAGE PartialTypeSignatures #-}
+
+daml 1.2
+module Main.Genesis where
+
+import Main.CCP
+import Main.PaymentProcessor
+
+{--
+  Genesis Template: As market operator, I want to initiate a contract workflow
+  and invite trading participants to the market.
+ --}
+
+template Genesis
+  with
+    operator: Party
+  where
+    signatory operator
+    controller operator can
+      nonconsuming InviteCCP : ContractId InviteClearingHouse
+        with ccp: Party
+        do create InviteClearingHouse with operator; ccp
+
+      nonconsuming InvitePaymentProcessor
+        : ContractId InviteAsPaymentProcessor
+        with paymentProcessor: Party
+        do
+          create InviteAsPaymentProcessor
+            with paymentProcessorParty = paymentProcessor
+                 operator

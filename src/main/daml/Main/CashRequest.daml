@@ -1,0 +1,41 @@
+-- Copyright (c) 2019, Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
+-- SPDX-License-Identifier: (Apache-2.0 OR BSD-3-Clause)
+
+{-# LANGUAGE PartialTypeSignatures #-}
+
+daml 1.2
+module Main.CashRequest where
+
+import Main.Cash
+
+{--
+    CashRequest Template: As a market paricipant, I want to be able to request
+  cash to trade.
+ --}
+
+template CashRequest
+  with
+    ccp : Party
+    tradingPartyId : Party
+    amount : Decimal
+    currency : Text
+    paymentProcessor : Party
+  where
+    signatory tradingPartyId, ccp
+    controller paymentProcessor can
+      AcceptCashRequest
+        : ContractId LockedCash
+        do   
+          cash <- create Cash with
+            amount = amount
+            ccp
+            owner = tradingPartyId
+            currency
+            paymentProcessor
+          lockedCash <- do       
+            exercise cash LockCash
+          return lockedCash
+
+      DeclineCashRequest
+        : ()
+        do return ()

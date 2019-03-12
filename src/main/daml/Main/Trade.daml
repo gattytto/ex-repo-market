@@ -1,0 +1,81 @@
+-- Copyright (c) 2019, Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
+-- SPDX-License-Identifier: (Apache-2.0 OR BSD-3-Clause)
+
+{-# LANGUAGE PartialTypeSignatures #-}
+
+daml 1.2
+module Main.Trade where
+
+data NovateResult = NovateResult {
+  lenderNovation: ContractId NovatedTrade;
+  borrowerNovation: ContractId NovatedTrade
+}
+
+data TradeRecord = TradeRecord {
+  tradeId: Int;
+  cusip: Text;
+  settlementDate: Time;
+  tradeDate: Time;
+  collateralQuantity: Decimal;
+  price: Decimal;
+  repoRate: Decimal;
+  term: Int;
+  startAmount : Decimal;
+  endAmount : Decimal;
+  currency : Text
+} deriving (Eq, Show)
+
+template Trade
+  with
+    borrower : Party               -- The borrower borrows cash and provides securities as collateral
+    lender : Party                 -- the lender lends cash and receives securities as collateral
+    tradeInfo : TradeRecord
+    ccp : Party
+  where
+    signatory ccp, lender, borrower
+    controller ccp can
+      Novate : NovateResult
+        do   
+          lenderNovation <- create NovatedTrade
+            with {participantId = lender; isBuy = True; tradeInfo; ccp}
+          borrowerNovation <- create NovatedTrade
+            with {participantId = borrower; isBuy = False; tradeInfo; ccp}
+          return NovateResult {lenderNovation; borrowerNovation}
+
+
+template NovatedTrade
+  with
+    participantId : Party
+    isBuy: Bool    -- true when participant is lender and ccp is borrower, false otherwise
+    tradeInfo : TradeRecord
+    ccp: Party
+  where
+    signatory ccp, participantId
+    controller ccp can
+      Archives
+        : ()
+        do return ()
+
+
+template TradeRegistrationRequest
+  with
+    tradeRequester : Party
+    tradeCounterParty : Party
+    tradeInfo : TradeRecord
+    ccp : Party
+  where
+    signatory tradeRequester
+    signatory ccp
+    controller tradeCounterParty can
+      RegisterTrade
+        : ContractId Trade
+        do 
+          create Trade with
+            borrower = tradeCounterParty
+            lender = tradeRequester
+            tradeInfo
+            ccp
+
+      DeclineTradeRequest
+        : ()
+        do return ()

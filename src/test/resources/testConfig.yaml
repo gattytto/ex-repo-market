@@ -1,0 +1,16 @@
+# Copyright (c) 2019, Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
+# SPDX-License-Identifier: (Apache-2.0 OR BSD-3-Clause)
+
+configuration:
+  ccp:
+    name: CCP
+    port: 9000
+  tradingParties:
+  - name: Citi
+    port: 9001
+  - name: HSBC
+    port: 9002
+  - name: Barclays
+    port: 9003
+  - name: JPMorgan
+    port: 9004

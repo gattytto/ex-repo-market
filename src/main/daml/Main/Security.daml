@@ -1,0 +1,126 @@
+-- Copyright (c) 2019, Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
+-- SPDX-License-Identifier: (Apache-2.0 OR BSD-3-Clause)
+
+{-# LANGUAGE PartialTypeSignatures #-}
+
+daml 1.2
+module Main.Security where
+
+data SplitResult = SplitResult {
+  newAmountSecurity: ContractId Security;
+  remainingAmountSecurity: ContractId Security
+}
+
+data SplitReturn = SplitReturn {
+  transferSecurity : ContractId SecurityTransfer;
+  remainingSecurity : Optional (ContractId MergedSecurity)
+}
+
+
+{--
+    Security Template: As CCP, I want there to be a contract
+    template for securities, so that the market participants can trade it.
+ --}
+
+template Security
+  with
+    cusip: Text
+    owner: Party
+    collateralQuantity: Decimal
+    ccp: Party
+  where
+    signatory ccp
+    signatory owner
+    controller owner can
+      TransferSecurity : ContractId SecurityTransfer
+        with newOwner: Party
+        do 
+          create SecurityTransfer with cusip; owner = newOwner; collateralQuantity; ccp
+
+      SplitSecurity : SplitResult
+        with newQuantity: Decimal
+        do   
+          assert (collateralQuantity > newQuantity)
+          newAmountSecurity <- create this with collateralQuantity = newQuantity
+          remainingAmountSecurity <- create this with collateralQuantity = collateralQuantity - newQuantity
+          return SplitResult {newAmountSecurity; remainingAmountSecurity}
+
+      MergeSecurity : ContractId Security
+        with thatCid: ContractId Security
+        do   
+          that <- fetch thatCid
+          joinedSecurity <- create this with collateralQuantity = that.collateralQuantity + collateralQuantity
+          do
+            exercise thatCid ArchiveSecurity
+          return joinedSecurity
+
+    controller ccp can
+      LockSecurity
+        : ContractId LockedSecurity
+        do create LockedSecurity with security = this; ccp
+
+      ArchiveSecurity
+        : ()
+        do return ()
+
+
+{--
+    LockedSecurity Template: As CCP, I want to be able to lock securities
+    to provide a guarentee on them being available.
+ --}
+
+template SecurityTransfer
+  with
+    cusip: Text
+    owner: Party
+    collateralQuantity: Decimal
+    ccp: Party
+  where
+    signatory ccp
+    controller owner can
+      AcceptSecurityTransfer
+        : ContractId Security
+        do create Security with owner; cusip; ccp; collateralQuantity
+
+
+template LockedSecurity
+  with
+    security : Security
+    ccp : Party
+  where
+    signatory security.ccp, security.owner
+    controller ccp can
+      UnlockSecurity
+        : ContractId Security
+        do create security
+
+
+{--
+    Merged Security Template: As the CCP, I want to create one merged security
+    that is the accumulation of market securities with the same CUSIP. That way, I can
+    redistribute assets based on post-netting obligtions.
+ --}
+
+template MergedSecurity
+  with
+    cusip: Text
+    owner: Party
+    collateralQuantity: Decimal
+    ccp: Party
+  where
+    ensure(collateralQuantity >= 0.0)
+    signatory ccp, owner
+    controller owner can
+      SplitAndTransferSecurity : SplitReturn
+        with newOwner : Party; splitValue : Decimal
+        do   
+          securityTransfer <- create SecurityTransfer with cusip; collateralQuantity = splitValue; owner = newOwner; ccp
+          if collateralQuantity - splitValue == 0.0 then 
+            return SplitReturn {transferSecurity = securityTransfer; remainingSecurity = None}
+          else do
+            remainingSecurity <- create this  with
+              cusip
+              collateralQuantity = collateralQuantity - splitValue
+              owner
+              ccp
+            return SplitReturn {transferSecurity = securityTransfer; remainingSecurity = Some remainingSecurity}

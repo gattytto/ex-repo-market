@@ -1,0 +1,129 @@
+-- Copyright (c) 2019, Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
+-- SPDX-License-Identifier: (Apache-2.0 OR BSD-3-Clause)
+
+{-# LANGUAGE PartialTypeSignatures #-}
+
+daml 1.2
+module Main.NetObligation where
+
+import Main.CashRequest
+import Main.SecurityRequest
+import Main.DvP
+
+{--
+    Net Obligation Request Template: As Market participant, I want to accept a net obligation.
+ --}
+
+template NetObligationRequest
+  with
+    ccp: Party
+    cusip : Text
+    currency : Text
+    paymentAmount : Decimal
+    quantity : Decimal
+    settlementDate : Time
+    participantId: Party
+    isBuy : Bool
+    paymentProcessor: Party
+  where
+    signatory ccp, paymentProcessor
+    controller participantId can
+      AcceptNetObligation
+        : ContractId NetObligation
+        do   
+          if (isBuy) then
+            create NetObligation with
+              ccp
+              cusip
+              receiver = participantId
+              payer = ccp
+              currency
+              paymentAmount
+              quantity
+              settlementDate
+              paymentProcessor
+          else
+            create NetObligation with
+              ccp
+              cusip
+              receiver = ccp
+              payer = participantId
+              currency
+              paymentAmount
+              quantity
+              settlementDate
+              paymentProcessor
+
+{--
+    Net Obligation Template: As Market Operator,
+    I want to outline the obligations post-netting,
+    and create DVPs with assets obtained from trading parties.
+ --}
+
+template NetObligation
+  with
+    ccp: Party
+    receiver : Party
+    payer : Party
+    paymentProcessor : Party
+    cusip : Text
+    currency : Text
+    paymentAmount : Decimal
+    quantity : Decimal
+    settlementDate : Time
+  where
+    ensure (ccp == receiver || ccp == payer)
+    signatory ccp, receiver, payer, paymentProcessor
+    controller ccp can
+      CreateBuyDvP
+        : ContractId CashAllocatedDvP
+        do   
+          assert  (ccp == payer)
+          cashReqCid <- create CashRequest with
+            ccp
+            amount = paymentAmount
+            tradingPartyId = receiver
+            currency
+            paymentProcessor
+          lockedCash <- exercise cashReqCid AcceptCashRequest
+          create CashAllocatedDvP with
+            ccp
+            cusip
+            settlementDate
+            currency
+            payer
+            receiver
+            paymentAmount
+            quantity
+            lockedCashId = lockedCash
+            paymentProcessor
+
+      CreateSellDvP
+        : ContractId AllocatedDvP
+        do   
+          assert (receiver == ccp)
+          securityReqCid <- create SecurityRequest with
+            ccp
+            cusip
+            tradingPartyId = payer
+            collateralQuantity = quantity
+          lockedSecurity <- exercise securityReqCid AcceptSecurityRequest
+          cashReqCid <- create CashRequest with
+            ccp
+            amount = paymentAmount
+            tradingPartyId = ccp
+            currency
+            paymentProcessor
+          lockedCash <- exercise cashReqCid AcceptCashRequest
+          create AllocatedDvP with
+            ccp
+            cusip
+            settlementDate
+            currency
+            payer
+            receiver
+            paymentAmount
+            quantity
+            lockedCashId = lockedCash
+            lockedSecurityId = lockedSecurity
+            paymentProcessor

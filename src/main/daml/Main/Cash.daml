@@ -1,0 +1,99 @@
+-- Copyright (c) 2019, Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
+-- SPDX-License-Identifier: (Apache-2.0 OR BSD-3-Clause)
+
+{-# LANGUAGE PartialTypeSignatures #-}
+
+daml 1.2
+module Main.Cash where
+
+data SplitResult = SplitResult {
+  splitCid : ContractId Cash;
+  restCid : ContractId Cash
+}
+
+{--
+    Cash Template: As System Operator, I want there to be a contract
+    template for cash, so that the market participants can trade it.
+ --}
+
+template Cash
+  with
+    ccp: Party
+    owner: Party
+    currency: Text
+    amount: Decimal
+    paymentProcessor: Party
+  where
+    signatory ccp, owner
+    controller owner can
+      TransferCash : ContractId CashTransfer
+        with newOwner: Party
+        do 
+          create CashTransfer with amount; ccp; owner = newOwner; currency; paymentProcessor
+
+      SplitCash :  SplitResult
+        with newAmount: Decimal
+        do   
+          splitCid <- create this with amount = newAmount
+          restCid <- create this with amount = amount - newAmount
+          return SplitResult { splitCid; restCid }
+
+      MergeCash : ContractId Cash
+        with thatCid: ContractId Cash
+        do   
+          that <- fetch thatCid
+          joinedCash <- create this with amount = that.amount+amount
+          do       exercise thatCid ArchiveCash
+          return joinedCash
+
+    controller ccp can
+      LockCash
+        : ContractId LockedCash
+        do create LockedCash with cash = this; ccp
+
+      ArchiveCash
+        : ()
+        do return ()
+
+
+template CashTransfer
+  with
+    amount: Decimal
+    ccp: Party
+    owner: Party
+    currency: Text
+    paymentProcessor: Party
+  where
+    signatory ccp
+    controller owner can
+      AcceptCashTransfer
+        : ContractId Cash
+        do create Cash with owner; amount; ccp; currency; paymentProcessor
+
+{--
+    LockedCash Template: As System Operator, I want to be able to lock cash
+    to provide a guarentee on it being available.
+ --}
+
+template LockedCash
+  with
+    cash : Cash
+    ccp : Party
+  where
+    signatory cash.ccp, cash.owner
+    controller ccp can
+      UnlockCash : ContractId Cash
+        do create cash
+
+
+template CashPoA
+  with
+    owner : Party
+    paymentProcessor : Party
+  where
+    signatory owner, paymentProcessor
+    controller paymentProcessor can
+      DelegatedTransferCash : ContractId CashTransfer
+        with cashId : ContractId Cash, newOwner: Party
+        do        
+          exercise cashId TransferCash with newOwner

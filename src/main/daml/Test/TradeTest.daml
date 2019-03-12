@@ -1,0 +1,89 @@
+-- Copyright (c) 2019, Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
+-- SPDX-License-Identifier: (Apache-2.0 OR BSD-3-Clause)
+
+{-# LANGUAGE PartialTypeSignatures #-}
+
+daml 1.2
+module Test.TradeTest where
+
+import DA.Time
+import DA.Date
+
+import Main.Trade
+import Main.TradingParticipant
+import Test.InviteTest
+
+data TradeTestResult = TradeTestResult {
+  lenderTrade : NovatedTrade;
+  borrowerTrade : NovatedTrade
+}
+
+testTrade : Scenario ()  -- test
+testTrade =
+  scenario do
+    inviteResult <- inviteTradeParticipantTest
+
+    let
+      tradeId = 1111
+      cusip = "K7837WBS"
+      settlementDate = datetime 1970 Jan 2 0 0 0 --1970-01-02T00:00:00Z
+      tradeDate = datetime 1970 Feb 2 0 0 0
+      collateralQuantity = 20.0
+      price = 90.93
+      repoRate = 4.16
+      term = 30
+      startAmount = 300000.0
+      endAmount = 400000.0
+      currency = "USD"
+
+    alice <- getParty "Alice"
+    bob <- getParty "Bob"
+    ccp <- getParty "CCP"
+
+    -- Bob repo's 20 shares of K7837WBS at a price of 400000.0
+
+    tradeRequest <- alice `submit` do
+      exercise inviteResult.tPart1 RequestTrade with
+        borrower = bob
+        tradeId; cusip
+        settlementDate; tradeDate
+        collateralQuantity; price
+        repoRate; term
+        startAmount; endAmount
+        currency
+
+    trade <- bob `submit` do exercise tradeRequest RegisterTrade
+    result <- ccp `submit` do
+      result <- exercise trade Novate
+      lenderTrade <- fetch result.lenderNovation
+      borrowerTrade <- fetch result.borrowerNovation
+      return TradeTestResult {lenderTrade; borrowerTrade}
+
+    let
+      tradeInfo = TradeRecord {
+        collateralQuantity = 20.0;
+        currency = "USD";
+        cusip = "K7837WBS";
+        endAmount = 400000.0;
+        price = 90.93;
+        repoRate = 4.16;
+        settlementDate = datetime 1970 Jan 2 0 0 0;
+        startAmount = 300000.0;
+        term = 30;
+        tradeDate = datetime 1970 Feb 2 0 0 0;
+        tradeId = 1111
+      }
+
+    assert (result.lenderTrade == NovatedTrade {
+      participantId = alice;
+      isBuy = True;
+      tradeInfo;
+      ccp
+    })
+
+    assert (result.borrowerTrade == NovatedTrade {
+      participantId = bob;
+      isBuy = False;
+      tradeInfo;
+      ccp
+    })
