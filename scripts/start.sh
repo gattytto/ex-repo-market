@@ -13,7 +13,7 @@ run() {
 
 stop () {
   printf "\nstopping participants...\n"
-  kill `ps -ae|grep example-repo-trading-.*\.jar|grep -v grep|awk '{print $1}'`
+  kill `ps -ae|grep ex-repo-trading-.*\.jar|grep -v grep|awk '{print $1}'`
   da stop
   state=stop
 }
