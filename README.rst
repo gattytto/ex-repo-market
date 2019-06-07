@@ -75,7 +75,7 @@ To run these commands, use a new terminal window:
 List trades available for settlement
 ####################################
 
-At the command promt, type ``./scri[ts/listTrades.sh``. The response will be a list of dates and the trades available for settlement:
+At the command promt, type ``./scripts/listTrades.sh``. The response will be a list of dates and the trades available for settlement:
 
 . code-block:: bash
 
