@@ -31,7 +31,7 @@ Running the example
 -------------------
 
 Running with JVM
-~~~~~~~~~~~~~~~~
+################
 
 Prerequisites:
 
@@ -64,7 +64,7 @@ The trades in the given trade file will load, and the system will pause, waiting
 Stop the system at any time by typing the interrupt character (Cntl-C) in the terminal windows.
 
 Running with docker
-~~~~~~~~~~~~~~~~~~~
+###################
 
 Prerequisites:
 * You have Docker and Docker-Compose installed
