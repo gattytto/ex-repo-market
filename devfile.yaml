@@ -1,0 +1,15 @@
+apiVersion: 1.0.0
+metadata:
+ name: daml
+projects:
+  - name: ex-repo-market
+    source:
+      location: 'git@github.com:gattytto/ex-repo-market.git'
+      type: git
+    clonePath: ex-repo-market
+components:
+  - type: chePlugin
+    reference: 'https://raw.githubusercontent.com/gattytto/cheplugins/master/daml/meta.yaml'
+    alias: daml
+  - id: eclipse/che-theia/next
+    type: cheEditor
