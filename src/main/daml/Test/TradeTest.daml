@@ -5,7 +5,6 @@
 
 {-# LANGUAGE PartialTypeSignatures #-}
 
-daml 1.2
 module Test.TradeTest where
 
 import DA.Time

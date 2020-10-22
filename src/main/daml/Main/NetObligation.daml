@@ -5,7 +5,6 @@
 
 {-# LANGUAGE PartialTypeSignatures #-}
 
-daml 1.2
 module Main.NetObligation where
 
 import Main.CashRequest

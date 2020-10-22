@@ -5,7 +5,6 @@
 
 {-# LANGUAGE PartialTypeSignatures #-}
 
-daml 1.2
 module Main.Security where
 
 data SplitResult = SplitResult {
